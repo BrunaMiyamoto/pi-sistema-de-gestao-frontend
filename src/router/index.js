@@ -3,6 +3,7 @@ import Home from "../views/Home.vue";
 import Login from "../views/Login.vue";
 import Dashboard from "../views/Dashboard.vue";
 import Cadastro from "../views/Cadastro.vue";
+import Perfil from "../views/Perfil.vue";
 import RecuperacaoSenha from "../views/RecuperacaoSenha.vue";
 
 const router = createRouter({
@@ -12,6 +13,7 @@ const router = createRouter({
     { path: "/login", name: "login", component: Login },
     { path: "/dashboard", name: "dashboard", component: Dashboard },
     { path: "/cadastro", name: "cadastro", component: Cadastro },
+    { path: "/perfil", name: "perfil", component: Perfil },
     {
       path: "/recuperar-senha",
       name: "recuperar-senha",

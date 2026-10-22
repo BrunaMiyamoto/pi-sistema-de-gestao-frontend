@@ -61,7 +61,7 @@ function sairDaConta() {
           <div
             class="peer-focus:opacity-100 peer-focus:visible transition-all bg-surface-dark p-2 border border-surface-border rounded-lg w-40 shadow-lg absolute left-0 top-full pt-1 opacity-0 invisible group-hover:opacity-100 group-hover:visible"
           >
-            <a href="#" class="block py-1 hover:text-ink-mutedDark">Perfil</a>
+            <router-link to="/perfil" class="block py-1 hover:text-ink-mutedDark">Perfil</router-link>
             <button
               type="button"
               class="block py-1 hover:text-ink-mutedDark cursor-pointer w-full text-left"

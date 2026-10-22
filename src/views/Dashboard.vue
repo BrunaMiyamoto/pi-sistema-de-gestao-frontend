@@ -72,18 +72,116 @@ const statusClasses = {
   concluida: "bg-status-doneBg text-status-doneText",
 };
 
+function parseDataBR(str) {
+  if (!str) return null;
+  const [dia, mes, ano] = str.split("/").map(Number);
+  if (!dia || !mes || !ano) return null;
+  return new Date(ano, mes - 1, dia);
+}
+
+function parseDataInputISO(str) {
+  if (!str) return null;
+  const [ano, mes, dia] = str.split("-").map(Number);
+  if (!dia || !mes || !ano) return null;
+  return new Date(ano, mes - 1, dia);
+}
+
 const pesquisa = ref("");
+const filtroStatus = ref("");
+const filtroSolicitante = ref("");
+const filtroDataInicio = ref("");
+const filtroDataFim = ref("");
+
+const solicitantesUnicos = computed(() =>
+  Array.from(new Set(solicitacoes.map((s) => s.solicitante).filter(Boolean))).sort(
+    (a, b) => a.localeCompare(b, "pt-BR"),
+  ),
+);
 
 const solicitacoesFiltradas = computed(() => {
   const termo = pesquisa.value.trim().toLowerCase();
-  if (!termo) return solicitacoes;
+  const inicio = parseDataInputISO(filtroDataInicio.value);
+  const fim = parseDataInputISO(filtroDataFim.value);
 
-  return solicitacoes.filter((solicitacao) =>
-    [solicitacao.id, solicitacao.solicitante, solicitacao.tipoServico]
-      .join(" ")
-      .toLowerCase()
-      .includes(termo),
-  );
+  return solicitacoes.filter((solicitacao) => {
+    const correspondeTermo =
+      !termo ||
+      [solicitacao.id, solicitacao.solicitante, solicitacao.tipoServico]
+        .join(" ")
+        .toLowerCase()
+        .includes(termo);
+
+    const correspondeStatus =
+      !filtroStatus.value || solicitacao.status === filtroStatus.value;
+
+    const correspondeSolicitante =
+      !filtroSolicitante.value || solicitacao.solicitante === filtroSolicitante.value;
+
+    const dataSolicitacao = parseDataBR(solicitacao.data);
+    const correspondeDataInicio =
+      !inicio || (dataSolicitacao && dataSolicitacao >= inicio);
+    const correspondeDataFim =
+      !fim || (dataSolicitacao && dataSolicitacao <= fim);
+
+    return (
+      correspondeTermo &&
+      correspondeStatus &&
+      correspondeSolicitante &&
+      correspondeDataInicio &&
+      correspondeDataFim
+    );
+  });
+});
+
+function limparFiltros() {
+  pesquisa.value = "";
+  filtroStatus.value = "";
+  filtroSolicitante.value = "";
+  filtroDataInicio.value = "";
+  filtroDataFim.value = "";
+}
+
+const sortColuna = ref(null);
+const sortDirecao = ref("asc");
+
+function alternarOrdenacao(campo) {
+  if (sortColuna.value === campo) {
+    sortDirecao.value = sortDirecao.value === "asc" ? "desc" : "asc";
+  } else {
+    sortColuna.value = campo;
+    sortDirecao.value = "asc";
+  }
+}
+
+function classeIconeOrdenacao(campo) {
+  if (sortColuna.value !== campo) return "fa-sort opacity-40";
+  return sortDirecao.value === "asc" ? "fa-sort-up" : "fa-sort-down";
+}
+
+function valorOrdenavel(solicitacao, campo) {
+  if (campo === "data" || campo === "prazo") return parseDataBR(solicitacao[campo]);
+  if (campo === "status") return statusLabel[solicitacao.status] ?? "";
+  return solicitacao[campo] ?? "";
+}
+
+const solicitacoesOrdenadas = computed(() => {
+  const lista = [...solicitacoesFiltradas.value];
+  if (!sortColuna.value) return lista;
+
+  const direcao = sortDirecao.value === "asc" ? 1 : -1;
+
+  return lista.sort((a, b) => {
+    const valorA = valorOrdenavel(a, sortColuna.value);
+    const valorB = valorOrdenavel(b, sortColuna.value);
+
+    if (valorA instanceof Date || valorB instanceof Date) {
+      const tempoA = valorA ? valorA.getTime() : 0;
+      const tempoB = valorB ? valorB.getTime() : 0;
+      return (tempoA - tempoB) * direcao;
+    }
+
+    return String(valorA).localeCompare(String(valorB), "pt-BR") * direcao;
+  });
 });
 
 const novaSolicitacaoAberta = ref(false);
@@ -165,10 +263,10 @@ function confirmarExclusao() {
 
       <StatusCards :stats="stats" />
 
-      <!-- BARRA DE PESQUISA -->
+      <!-- BARRA DE PESQUISA E FILTROS -->
       <div class="bg-white dark:bg-surface-dark p-2 rounded-xl shadow">
         <div class="flex gap-2 items-center">
-          <i class="fa-solid fa-magnifying-glass text-ink-secondary"></i>
+          <i class="fa-solid fa-magnifying-glass text-ink-secondary dark:text-white"></i>
 
           <input
             v-model="pesquisa"
@@ -179,8 +277,93 @@ function confirmarExclusao() {
             class="w-full bg-transparent dark:text-white dark:placeholder:text-ink-mutedDark"
           />
         </div>
+
+        <div
+          class="flex flex-wrap gap-3 items-end mt-3 pt-3 border-t border-surface-borderLight dark:border-surface-border"
+        >
+          <div class="flex flex-col">
+            <label
+              for="filtroStatus"
+              class="text-xs font-semibold text-ink-secondary dark:text-ink-mutedDark mb-1"
+              >Status</label
+            >
+            <select
+              v-model="filtroStatus"
+              id="filtroStatus"
+              name="filtroStatus"
+              class="border border-slate-300 dark:border-surface-border rounded-sm p-1 bg-white dark:bg-surface-authBg dark:text-white focus:outline-none focus:ring-2 focus:ring-status-indigoText"
+            >
+              <option value="">Todos</option>
+              <option v-for="(label, valor) in statusLabel" :key="valor" :value="valor">
+                {{ label }}
+              </option>
+            </select>
+          </div>
+
+          <div class="flex flex-col">
+            <label
+              for="filtroSolicitante"
+              class="text-xs font-semibold text-ink-secondary dark:text-ink-mutedDark mb-1"
+              >Solicitante</label
+            >
+            <select
+              v-model="filtroSolicitante"
+              id="filtroSolicitante"
+              name="filtroSolicitante"
+              class="border border-slate-300 dark:border-surface-border rounded-sm p-1 bg-white dark:bg-surface-authBg dark:text-white focus:outline-none focus:ring-2 focus:ring-status-indigoText"
+            >
+              <option value="">Todos</option>
+              <option
+                v-for="solicitante in solicitantesUnicos"
+                :key="solicitante"
+                :value="solicitante"
+              >
+                {{ solicitante }}
+              </option>
+            </select>
+          </div>
+
+          <div class="flex flex-col">
+            <label
+              for="filtroDataInicio"
+              class="text-xs font-semibold text-ink-secondary dark:text-ink-mutedDark mb-1"
+              >De</label
+            >
+            <input
+              v-model="filtroDataInicio"
+              type="date"
+              id="filtroDataInicio"
+              name="filtroDataInicio"
+              class="border border-slate-300 dark:border-surface-border rounded-sm p-1 bg-white dark:bg-surface-authBg dark:text-white focus:outline-none focus:ring-2 focus:ring-status-indigoText"
+            />
+          </div>
+
+          <div class="flex flex-col">
+            <label
+              for="filtroDataFim"
+              class="text-xs font-semibold text-ink-secondary dark:text-ink-mutedDark mb-1"
+              >Até</label
+            >
+            <input
+              v-model="filtroDataFim"
+              type="date"
+              id="filtroDataFim"
+              name="filtroDataFim"
+              class="border border-slate-300 dark:border-surface-border rounded-sm p-1 bg-white dark:bg-surface-authBg dark:text-white focus:outline-none focus:ring-2 focus:ring-status-indigoText"
+            />
+          </div>
+
+          <button
+            type="button"
+            @click="limparFiltros"
+            class="flex items-center gap-1 text-sm font-semibold text-ink-secondary dark:text-ink-mutedDark hover:text-red-600 dark:hover:text-red-400 border border-slate-300 dark:border-surface-border rounded-sm px-3 py-1.5 cursor-pointer"
+          >
+            <i class="fa-solid fa-filter-circle-xmark dark:text-white"></i>
+            Limpar Filtros
+          </button>
+        </div>
       </div>
-      <!-- FIM DA BARRA DE PESQUISA -->
+      <!-- FIM DA BARRA DE PESQUISA E FILTROS -->
 
       <!-- TABELA TABELA TABELA TABELA  -->
       <div
@@ -191,19 +374,83 @@ function confirmarExclusao() {
             <tr
               class="bg-surface-subtle dark:bg-surface-authBg border-b border-surface-borderLight dark:border-surface-border text-ink-secondary dark:text-ink-mutedDark text-sm font-semibold"
             >
-              <th class="px-3 py-3 font-semibold hidden">ID</th>
-              <th class="py-3 font-semibold hidden sm:table-cell">Data</th>
-              <th class="py-3 font-semibold hidden sm:table-cell">
-                Solicitante
+              <th
+                class="px-3 py-3 font-semibold cursor-pointer select-none"
+                @click="alternarOrdenacao('id')"
+              >
+                <span class="inline-flex items-center gap-1"
+                  >ID
+                  <i
+                    class="fa-solid text-[10px] dark:text-white"
+                    :class="classeIconeOrdenacao('id')"
+                  ></i></span
+                >
               </th>
-              <th class="py-3 px-3 font-semibold">Tipo de Serviço</th>
-              <th class="py-3 font-semibold">Prazo</th>
-              <th class="py-3 font-semibold">Status</th>
+              <th
+                class="py-3 font-semibold hidden sm:table-cell cursor-pointer select-none"
+                @click="alternarOrdenacao('data')"
+              >
+                <span class="inline-flex items-center gap-1"
+                  >Data
+                  <i
+                    class="fa-solid text-[10px] dark:text-white"
+                    :class="classeIconeOrdenacao('data')"
+                  ></i></span
+                >
+              </th>
+              <th
+                class="py-3 font-semibold hidden sm:table-cell cursor-pointer select-none"
+                @click="alternarOrdenacao('solicitante')"
+              >
+                <span class="inline-flex items-center gap-1"
+                  >Solicitante
+                  <i
+                    class="fa-solid text-[10px] dark:text-white"
+                    :class="classeIconeOrdenacao('solicitante')"
+                  ></i></span
+                >
+              </th>
+              <th
+                class="py-3 px-3 font-semibold hidden sm:table-cell cursor-pointer select-none"
+                @click="alternarOrdenacao('tipoServico')"
+              >
+                <span class="inline-flex items-center gap-1"
+                  >Tipo de Serviço
+                  <i
+                    class="fa-solid text-[10px] dark:text-white"
+                    :class="classeIconeOrdenacao('tipoServico')"
+                  ></i></span
+                >
+              </th>
+              <th
+                class="py-3 font-semibold cursor-pointer select-none"
+                @click="alternarOrdenacao('prazo')"
+              >
+                <span class="inline-flex items-center gap-1"
+                  >Prazo
+                  <i
+                    class="fa-solid text-[10px] dark:text-white"
+                    :class="classeIconeOrdenacao('prazo')"
+                  ></i></span
+                >
+              </th>
+              <th
+                class="py-3 font-semibold cursor-pointer select-none"
+                @click="alternarOrdenacao('status')"
+              >
+                <span class="inline-flex items-center gap-1"
+                  >Status
+                  <i
+                    class="fa-solid text-[10px] dark:text-white"
+                    :class="classeIconeOrdenacao('status')"
+                  ></i></span
+                >
+              </th>
             </tr>
           </thead>
           <tbody>
             <tr
-              v-for="solicitacao in solicitacoesFiltradas"
+              v-for="solicitacao in solicitacoesOrdenadas"
               :key="solicitacao.id"
               class="shadow"
             >
@@ -238,7 +485,7 @@ function confirmarExclusao() {
                 ></a>
                 <a @click="excluirSolicitacao(solicitacao)"
                   ><i
-                    class="fa-solid fa-trash-can cursor-pointer fa-[20px] text-surface-dark dark:text-white"
+                    class="fa-solid fa-trash-can cursor-pointer fa-[20px] text-red-600 hover:text-red-700 dark:text-red-400"
                   ></i
                 ></a>
               </td>

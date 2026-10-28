@@ -79,7 +79,6 @@ async function criarConta() {
     if (form.tipoPerfil === "Ferramentaria") {
       aviso.value =
         "Sua conta foi criada como Solicitante. Peça para um administrador alterar seu perfil para Ferramentaria.";
-      return;
     }
     try {
       await autenticar(form.email, form.senha);

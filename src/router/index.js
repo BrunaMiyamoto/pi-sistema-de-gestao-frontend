@@ -56,6 +56,8 @@ const router = createRouter({
 router.beforeEach(async (to) => {
   const { state, sair, confirmarAdministradorViaProbe } = useAuth();
 
+  state.error = "";
+
   if (to.meta.requiresAuth) {
     // Mesmo com o usuário salvo em sessão, o token pode ter expirado
     // enquanto o app estava fechado (ex: reload após o prazo do JWT).

@@ -1,64 +1,42 @@
 <script setup>
-import { computed, reactive, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import AppHeader from "../components/AppHeader.vue";
 import StatusCards from "../components/StatusCards.vue";
 import NovaSolicitacaoModal from "../components/NovaSolicitacaoModal.vue";
 import ServicoModal from "../components/ServicoModal.vue";
 import ExcluirSolicitacaoModal from "../components/ExcluirSolicitacaoModal.vue";
+import { useAuth, isFerramentaria } from "../composables/useAuth";
+import { useSolicitacoes } from "../composables/useSolicitacoes";
+import { exportarParaExcel } from "../utils/exportarExcel";
 
-const stats = reactive({
-  pendentes: 1,
-  emAnalise: 1,
-  emAtendimento: 1,
-  concluidas: 1,
+const { state: authState } = useAuth();
+const {
+  solicitacoes,
+  state: solicitacoesState,
+  carregarSolicitacoes,
+  registrarSolicitacao: criarSolicitacao,
+  atualizarSolicitacao,
+  removerSolicitacao,
+  carregarValoresOrcamento,
+} = useSolicitacoes();
+
+// O backend já filtra /pedidos pelo usuário logado quando o perfil é
+// "solicitante", então não é preciso repetir esse filtro aqui no front.
+const podeVerTodos = computed(() => isFerramentaria(authState.currentUser));
+
+onMounted(() => {
+  carregarSolicitacoes().catch(() => {});
 });
 
-const solicitacoes = reactive([
-  {
-    id: "#001",
-    data: "18/08/2026",
-    solicitante: "Engenharia - Jacto Agrícola",
-    tipoServico: "Molde de Injeção",
-    prazo: "18/08/2026",
-    status: "andamento",
-    abertura: "18/08/2026",
-    atendido: "18/08/2026",
-    feedback: "",
-  },
-  {
-    id: "#002",
-    data: "18/08/2026",
-    solicitante: "Engenharia - Jacto Agrícola",
-    tipoServico: "Molde de Injeção",
-    prazo: "18/08/2026",
-    status: "andamento",
-    abertura: "18/08/2026",
-    atendido: "18/08/2026",
-    feedback: "",
-  },
-  {
-    id: "#003",
-    data: "18/08/2026",
-    solicitante: "Engenharia - Jacto Agrícola",
-    tipoServico: "Molde de Injeção",
-    prazo: "18/08/2026",
-    status: "concluida",
-    abertura: "18/08/2026",
-    atendido: "18/08/2026",
-    feedback: "",
-  },
-  {
-    id: "#004",
-    data: "18/08/2026",
-    solicitante: "Engenharia - Jacto Agrícola",
-    tipoServico: "Molde de Injeção",
-    prazo: "18/08/2026",
-    status: "concluida",
-    abertura: "18/08/2026",
-    atendido: "18/08/2026",
-    feedback: "",
-  },
-]);
+// A API só tem 3 status de pedido (andamento/aguardando/concluida); os
+// cards do dashboard preveem 4 categorias. Mapeamento aproximado abaixo —
+// ver MISSING_ENDPOINTS.md, item 6.
+const stats = computed(() => ({
+  pendentes: solicitacoes.filter((s) => s.status === "andamento").length,
+  emAnalise: 0,
+  emAtendimento: solicitacoes.filter((s) => s.status === "aguardando").length,
+  concluidas: solicitacoes.filter((s) => s.status === "concluida").length,
+}));
 
 const statusLabel = {
   andamento: "Em Andamento",
@@ -92,10 +70,14 @@ const filtroSolicitante = ref("");
 const filtroDataInicio = ref("");
 const filtroDataFim = ref("");
 
+// Nada a filtrar aqui: GET /pedidos já devolve só os pedidos do próprio
+// usuário quando o perfil não é Ferramentaria.
+const solicitacoesVisiveis = computed(() => solicitacoes);
+
 const solicitantesUnicos = computed(() =>
-  Array.from(new Set(solicitacoes.map((s) => s.solicitante).filter(Boolean))).sort(
-    (a, b) => a.localeCompare(b, "pt-BR"),
-  ),
+  Array.from(
+    new Set(solicitacoesVisiveis.value.map((s) => s.solicitante).filter(Boolean)),
+  ).sort((a, b) => a.localeCompare(b, "pt-BR")),
 );
 
 const solicitacoesFiltradas = computed(() => {
@@ -103,7 +85,7 @@ const solicitacoesFiltradas = computed(() => {
   const inicio = parseDataInputISO(filtroDataInicio.value);
   const fim = parseDataInputISO(filtroDataFim.value);
 
-  return solicitacoes.filter((solicitacao) => {
+  return solicitacoesVisiveis.value.filter((solicitacao) => {
     const correspondeTermo =
       !termo ||
       [solicitacao.id, solicitacao.solicitante, solicitacao.tipoServico]
@@ -133,6 +115,20 @@ const solicitacoesFiltradas = computed(() => {
   });
 });
 
+function exportarSolicitacoes() {
+  const linhas = solicitacoesOrdenadas.value.map((s) => ({
+    ID: s.id,
+    Data: s.data,
+    Solicitante: s.solicitante,
+    "Tipo de Serviço": s.tipoServico,
+    Prazo: s.prazo,
+    Status: statusLabel[s.status],
+    "Valor Orçado (R$)": s.valorOrcado ?? "",
+    "Valor do Pedido (R$)": s.valorPedido ?? "",
+  }));
+  exportarParaExcel(linhas, "solicitacoes", "Solicitações");
+}
+
 function limparFiltros() {
   pesquisa.value = "";
   filtroStatus.value = "";
@@ -140,6 +136,20 @@ function limparFiltros() {
   filtroDataInicio.value = "";
   filtroDataFim.value = "";
 }
+
+// O filtro é todo local (ver solicitacoesVisiveis/solicitacoesFiltradas
+// acima), mas mesmo assim sinalizamos um loading breve na tabela para dar
+// feedback visual de que a busca/filtro foi aplicado.
+const filtrando = ref(false);
+let filtrandoTimeout = null;
+
+watch([pesquisa, filtroStatus, filtroSolicitante, filtroDataInicio, filtroDataFim], () => {
+  filtrando.value = true;
+  clearTimeout(filtrandoTimeout);
+  filtrandoTimeout = setTimeout(() => {
+    filtrando.value = false;
+  }, 700);
+});
 
 const sortColuna = ref(null);
 const sortDirecao = ref("asc");
@@ -189,6 +199,7 @@ const servicoModalAberto = ref(false);
 const solicitacaoSelecionada = ref(null);
 
 function abrirNovaSolicitacao() {
+  solicitacoesState.erroAcao = "";
   novaSolicitacaoAberta.value = true;
 }
 
@@ -196,22 +207,20 @@ function fecharNovaSolicitacao() {
   novaSolicitacaoAberta.value = false;
 }
 
-function registrarSolicitacao(dadosForm) {
-  const proximoId = solicitacoes.length + 1;
-  solicitacoes.push({
-    id: `#${String(proximoId).padStart(3, "0")}`,
-    data: new Date().toLocaleDateString("pt-BR"),
-    solicitante: "Engenharia - Jacto Agrícola",
-    tipoServico: dadosForm.tipoServico,
-    prazo: dadosForm.prazo,
-    status: "andamento",
-    abertura: new Date().toLocaleDateString("pt-BR"),
-    atendido: "-",
-    feedback: "",
-  });
+async function registrarSolicitacao(dadosForm) {
+  try {
+    await criarSolicitacao(dadosForm);
+    fecharNovaSolicitacao();
+  } catch {
+    // erro exibido no modal via solicitacoesState.erroAcao; modal permanece aberto
+  }
 }
 
-function abrirServico(solicitacao) {
+async function abrirServico(solicitacao) {
+  solicitacoesState.erroAcao = "";
+  if (podeVerTodos.value) {
+    await carregarValoresOrcamento(solicitacao).catch(() => {});
+  }
   solicitacaoSelecionada.value = solicitacao;
   servicoModalAberto.value = true;
 }
@@ -220,16 +229,21 @@ function fecharServico() {
   servicoModalAberto.value = false;
 }
 
-function salvarServico(dadosForm) {
+async function salvarServico(dadosForm) {
   if (!solicitacaoSelecionada.value) return;
-  solicitacaoSelecionada.value.status = dadosForm.status;
-  solicitacaoSelecionada.value.feedback = dadosForm.feedback;
+  try {
+    await atualizarSolicitacao(solicitacaoSelecionada.value, dadosForm);
+    fecharServico();
+  } catch {
+    // erro exibido no modal via solicitacoesState.erroAcao; modal permanece aberto
+  }
 }
 
 const excluirModalAberto = ref(false);
 const solicitacaoParaExcluir = ref(null);
 
 function excluirSolicitacao(solicitacao) {
+  solicitacoesState.erroAcao = "";
   solicitacaoParaExcluir.value = solicitacao;
   excluirModalAberto.value = true;
 }
@@ -239,10 +253,13 @@ function fecharExclusao() {
   solicitacaoParaExcluir.value = null;
 }
 
-function confirmarExclusao() {
-  const index = solicitacoes.indexOf(solicitacaoParaExcluir.value);
-  if (index !== -1) solicitacoes.splice(index, 1);
-  fecharExclusao();
+async function confirmarExclusao() {
+  try {
+    await removerSolicitacao(solicitacaoParaExcluir.value);
+    fecharExclusao();
+  } catch {
+    // erro exibido no modal via solicitacoesState.erroAcao; modal permanece aberto
+  }
 }
 </script>
 
@@ -253,12 +270,23 @@ function confirmarExclusao() {
     <main class="max-w-7xl mx-auto px-4 py-8">
       <div class="flex justify-between items-center">
         <h1 class="font-bold text-surface-dark dark:text-white text-2xl">Dashboard</h1>
-        <button
-          class="bg-brand-mint hover:bg-brand-turquoise text-white text-sm font-bold py-1.5 px-4 rounded-xl cursor-pointer"
-          @click="abrirNovaSolicitacao"
-        >
-          + Nova Solicitação
-        </button>
+        <div class="flex gap-2">
+          <button
+            type="button"
+            :disabled="solicitacoesOrdenadas.length === 0"
+            class="flex items-center gap-2 bg-white dark:bg-surface-dark border border-slate-300 dark:border-surface-border hover:border-brand-mint text-surface-dark dark:text-white text-sm font-bold py-1.5 px-4 rounded-xl cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-slate-300 dark:disabled:hover:border-surface-border"
+            @click="exportarSolicitacoes"
+          >
+            <i class="fa-solid fa-file-excel text-brand-mint"></i>
+            Exportar Excel
+          </button>
+          <button
+            class="bg-brand-mint hover:bg-brand-turquoise text-white text-sm font-bold py-1.5 px-4 rounded-xl cursor-pointer"
+            @click="abrirNovaSolicitacao"
+          >
+            + Nova Solicitação
+          </button>
+        </div>
       </div>
 
       <StatusCards :stats="stats" />
@@ -300,7 +328,7 @@ function confirmarExclusao() {
             </select>
           </div>
 
-          <div class="flex flex-col">
+          <div v-if="podeVerTodos" class="flex flex-col">
             <label
               for="filtroSolicitante"
               class="text-xs font-semibold text-ink-secondary dark:text-ink-mutedDark mb-1"
@@ -449,47 +477,68 @@ function confirmarExclusao() {
             </tr>
           </thead>
           <tbody>
-            <tr
-              v-for="solicitacao in solicitacoesOrdenadas"
-              :key="solicitacao.id"
-              class="shadow"
-            >
-              <td class="font-semibold text-black dark:text-white px-3">
-                {{ solicitacao.id }}
-              </td>
-              <td class="text-ink-secondary dark:text-ink-mutedDark hidden sm:table-cell">
-                {{ solicitacao.data }}
-              </td>
-              <td class="font-semibold text-black dark:text-white hidden sm:table-cell">
-                {{ solicitacao.solicitante }}
-              </td>
-              <td class="font-semibold text-black dark:text-white hidden sm:table-cell">
-                {{ solicitacao.tipoServico }}
-              </td>
-              <td class="text-ink-secondary dark:text-ink-mutedDark w-24 sm:w-auto">
-                {{ solicitacao.prazo }}
-              </td>
-              <td class="p-2">
-                <div
-                  :class="statusClasses[solicitacao.status]"
-                  class="text-sm font-bold rounded-2xl my-2 p-1 max-w-32 text-center"
-                >
-                  {{ statusLabel[solicitacao.status] }}
+            <tr v-if="solicitacoesState.loading || filtrando">
+              <td colspan="7" class="py-10 text-center">
+                <div class="flex flex-col items-center gap-2 text-ink-secondary dark:text-ink-mutedDark">
+                  <i class="fa-solid fa-circle-notch fa-spin text-2xl text-brand-mint"></i>
+                  <p class="font-semibold">Carregando solicitações...</p>
                 </div>
               </td>
-              <td class="p-2">
-                <a @click="abrirServico(solicitacao)"
-                  ><i
-                    class="fa-solid fa-pen-to-square cursor-pointer fa-[20px] text-surface-dark dark:text-white"
-                  ></i
-                ></a>
-                <a @click="excluirSolicitacao(solicitacao)"
-                  ><i
-                    class="fa-solid fa-trash-can cursor-pointer fa-[20px] text-red-600 hover:text-red-700 dark:text-red-400"
-                  ></i
-                ></a>
+            </tr>
+            <tr v-else-if="solicitacoesOrdenadas.length === 0">
+              <td colspan="7" class="py-10 text-center">
+                <div class="flex flex-col items-center gap-2 text-ink-secondary dark:text-ink-mutedDark">
+                  <i class="fa-solid fa-inbox text-3xl opacity-40"></i>
+                  <p class="font-semibold">Nenhuma solicitação</p>
+                </div>
               </td>
             </tr>
+            <template v-else>
+              <tr
+                v-for="solicitacao in solicitacoesOrdenadas"
+                :key="solicitacao.id"
+                class="shadow"
+              >
+                <td class="font-semibold text-black dark:text-white px-3">
+                  {{ solicitacao.id }}
+                </td>
+                <td class="text-ink-secondary dark:text-ink-mutedDark hidden sm:table-cell">
+                  {{ solicitacao.data }}
+                </td>
+                <td class="font-semibold text-black dark:text-white hidden sm:table-cell">
+                  {{ solicitacao.solicitante }}
+                </td>
+                <td class="font-semibold text-black dark:text-white hidden sm:table-cell">
+                  {{ solicitacao.tipoServico }}
+                </td>
+                <td class="text-ink-secondary dark:text-ink-mutedDark w-24 sm:w-auto">
+                  {{ solicitacao.prazo }}
+                </td>
+                <td class="p-2">
+                  <div
+                    :class="statusClasses[solicitacao.status]"
+                    class="text-sm font-bold rounded-2xl my-2 p-1 max-w-32 text-center"
+                  >
+                    {{ statusLabel[solicitacao.status] }}
+                  </div>
+                </td>
+                <td class="p-2">
+                  <template v-if="podeVerTodos">
+                    <a @click="abrirServico(solicitacao)"
+                      ><i
+                        class="fa-solid fa-pen-to-square cursor-pointer fa-[20px] text-surface-dark dark:text-white"
+                      ></i
+                    ></a>
+                    <a @click="excluirSolicitacao(solicitacao)"
+                      ><i
+                        class="fa-solid fa-trash-can cursor-pointer fa-[20px] text-red-600 hover:text-red-700 dark:text-red-400"
+                      ></i
+                    ></a>
+                  </template>
+                  <span v-else class="text-ink-mutedDark text-xs">-</span>
+                </td>
+              </tr>
+            </template>
           </tbody>
         </table>
       </div>
@@ -497,6 +546,8 @@ function confirmarExclusao() {
 
       <NovaSolicitacaoModal
         :open="novaSolicitacaoAberta"
+        :loading="solicitacoesState.salvando"
+        :erro="solicitacoesState.erroAcao"
         @close="fecharNovaSolicitacao"
         @submit="registrarSolicitacao"
       />
@@ -504,6 +555,8 @@ function confirmarExclusao() {
       <ServicoModal
         :open="servicoModalAberto"
         :solicitacao="solicitacaoSelecionada"
+        :loading="solicitacoesState.salvando"
+        :erro="solicitacoesState.erroAcao"
         @close="fecharServico"
         @submit="salvarServico"
       />
@@ -511,6 +564,8 @@ function confirmarExclusao() {
       <ExcluirSolicitacaoModal
         :open="excluirModalAberto"
         :solicitacao="solicitacaoParaExcluir"
+        :loading="solicitacoesState.salvando"
+        :erro="solicitacoesState.erroAcao"
         @close="fecharExclusao"
         @confirm="confirmarExclusao"
       />

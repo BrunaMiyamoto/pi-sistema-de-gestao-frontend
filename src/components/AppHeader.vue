@@ -1,6 +1,6 @@
 <script setup>
 import { useRouter } from "vue-router";
-import { useAuth } from "../composables/useAuth";
+import { useAuth, isFerramentaria, isAdministrador } from "../composables/useAuth";
 
 defineProps({
   loggedIn: {
@@ -43,7 +43,21 @@ function sairDaConta() {
         </div>
       </nav>
 
-      <nav v-else class="flex gap-1">
+      <nav v-else class="flex gap-1 items-center">
+        <router-link
+          v-if="isFerramentaria(state.currentUser)"
+          to="/relatorios"
+          class="cursor-pointer hover:text-brand-mint font-bold text-sm"
+          >Relatórios</router-link
+        >
+
+        <router-link
+          v-if="isAdministrador(state.currentUser)"
+          to="/usuarios"
+          class="cursor-pointer hover:text-brand-mint font-bold text-sm"
+          >Usuários</router-link
+        >
+
         <div>
           <i
             class="fa-regular fa-circle-user fa-xl pt-6 m-2"

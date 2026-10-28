@@ -1,11 +1,10 @@
 <script setup>
 import { computed, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
-import { blockPasteOverLimit } from "../composables/usePasswordPasteLimit";
 import { useAuth } from "../composables/useAuth";
 
 const router = useRouter();
-const { autenticar } = useAuth();
+const { state, autenticar } = useAuth();
 
 const form = reactive({
   email: "",
@@ -18,11 +17,15 @@ const emailErro = computed(() =>
   emailTouched.value && !emailValido.value ? "Informe um e-mail válido." : ""
 );
 
-function entrar() {
+async function entrar() {
   emailTouched.value = true;
   if (!emailValido.value) return;
-  autenticar(form.email);
-  router.push("/dashboard");
+  try {
+    await autenticar(form.email, form.senha);
+    router.push("/dashboard");
+  } catch {
+    // erro exibido via state.error
+  }
 }
 </script>
 
@@ -80,8 +83,7 @@ function entrar() {
               name="senha"
               id="senha"
               placeholder="*********"
-              maxlength="8"
-              @paste="blockPasteOverLimit"
+              minlength="8"
               class="bg-surface-authBg rounded-lg text-slate-300 text-sm py-2 px-3 border border-surface-border focus:outline-none focus:border-brand-mint"
             />
           </div>
@@ -90,11 +92,14 @@ function entrar() {
             <router-link to="/recuperar-senha">Esqueceu sua senha?</router-link>
           </div>
 
+          <p v-if="state.error" class="text-red-400 text-xs pb-2">{{ state.error }}</p>
+
           <button
             type="submit"
-            class="inline-block text-center bg-brand-mint text-white font-bold py-1.5 w-full rounded-lg cursor-pointer mt-4 hover:bg-brand-turquoise"
+            :disabled="state.loading"
+            class="inline-block text-center bg-brand-mint text-white font-bold py-1.5 w-full rounded-lg cursor-pointer mt-4 hover:bg-brand-turquoise disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            ENTRAR
+            {{ state.loading ? "Entrando..." : "ENTRAR" }}
           </button>
 
           <p class="text-center text-ink-mutedDark text-xs pt-4">

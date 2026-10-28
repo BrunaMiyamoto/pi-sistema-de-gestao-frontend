@@ -30,6 +30,15 @@ const { state, setFontScale, setColorScheme, setHighContrast } =
             Visualize suas informações de conta e preferências de
             acessibilidade.
           </p>
+          <p
+            v-if="authState.currentUser?.perfilInferido"
+            class="text-amber-600 dark:text-amber-400 text-xs mt-2 flex items-center gap-1"
+          >
+            <i class="fa-solid fa-triangle-exclamation"></i>
+            O backend ainda não tem um endpoint para confirmar seu nome e
+            perfil após o login; os dados abaixo podem estar incompletos
+            (ver MISSING_ENDPOINTS.md).
+          </p>
         </div>
         <button
           type="button"

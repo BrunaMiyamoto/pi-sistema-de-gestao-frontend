@@ -1,13 +1,19 @@
 <script setup>
 import { computed, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
-import { blockPasteOverLimit } from "../composables/usePasswordPasteLimit";
-import { useAuth } from "../composables/useAuth";
+import { PERFIL_LABEL, useAuth } from "../composables/useAuth";
 
 const router = useRouter();
-const { registrarUsuario } = useAuth();
+const { state, registrarUsuario, autenticar } = useAuth();
+const aviso = ref("");
+const sucesso = ref("");
 
-const perfis = ["Solicitante", "Ferramentaria"];
+// Lista de perfis selecionáveis no cadastro público: todos os valores que o
+// backend aceita, exceto "administrador" (não pode ser criado por aqui — ver
+// MISSING_ENDPOINTS.md, item 3).
+const perfis = Object.entries(PERFIL_LABEL)
+  .filter(([valor]) => valor !== "administrador")
+  .map(([, label]) => label);
 
 const form = reactive({
   nome: "",
@@ -42,7 +48,7 @@ const errors = computed(() => ({
   nome: form.nome.trim() ? "" : "Informe seu nome completo.",
   email: emailValido.value ? "" : "Informe um e-mail válido.",
   tipoPerfil: form.tipoPerfil ? "" : "Selecione um tipo de perfil.",
-  senha: form.senha.length === 8 ? "" : "A senha deve ter exatamente 8 caracteres.",
+  senha: form.senha.length >= 8 ? "" : "A senha deve ter no mínimo 8 caracteres.",
   confirmarSenha:
     form.confirmarSenha && form.confirmarSenha === form.senha
       ? ""
@@ -51,19 +57,45 @@ const errors = computed(() => ({
 
 const isValid = computed(() => Object.values(errors.value).every((erro) => !erro));
 
-function criarConta() {
+function aguardar(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function criarConta() {
   emailTouched.value = true;
   if (!isValid.value) return;
   submitting.value = true;
-  registrarUsuario({
-    nome: form.nome.trim(),
-    email: form.email,
-    tipoPerfil: form.tipoPerfil,
-  });
-  setTimeout(() => {
+  aviso.value = "";
+  sucesso.value = "";
+  try {
+    await registrarUsuario({
+      nome: form.nome.trim(),
+      email: form.email,
+      senha: form.senha,
+      tipoPerfil: form.tipoPerfil,
+    });
+    // Cadastro público sempre cria perfil "Solicitante" (regra do backend).
+    // Ver MISSING_ENDPOINTS.md, item 3.
+    if (form.tipoPerfil === "Ferramentaria") {
+      aviso.value =
+        "Sua conta foi criada como Solicitante. Peça para um administrador alterar seu perfil para Ferramentaria.";
+      return;
+    }
+    try {
+      await autenticar(form.email, form.senha);
+      sucesso.value = "Conta criada com sucesso! Entrando...";
+      await aguardar(1000);
+      router.push("/dashboard");
+    } catch {
+      aviso.value =
+        "Conta criada com sucesso, mas não foi possível entrar automaticamente. Faça login.";
+      router.push("/login");
+    }
+  } catch {
+    // erro exibido via state.error
+  } finally {
     submitting.value = false;
-    router.push("/login");
-  }, 600);
+  }
 }
 </script>
 
@@ -190,9 +222,7 @@ function criarConta() {
                 name="senha"
                 id="senha"
                 placeholder="*********"
-                maxlength="8"
                 minlength="8"
-                @paste="blockPasteOverLimit"
                 class="bg-surface-authBg rounded-lg text-slate-300 text-sm py-2 px-3 pr-9 w-full border border-surface-border focus:outline-none focus:border-brand-mint"
               />
               <button
@@ -204,7 +234,7 @@ function criarConta() {
               </button>
             </div>
             <p class="text-ink-placeholder text-xs pt-1">
-              Use exatamente 8 caracteres para sua senha.
+              Use no mínimo 8 caracteres para sua senha.
             </p>
           </div>
 
@@ -217,9 +247,7 @@ function criarConta() {
                 name="confirmarSenha"
                 id="confirmarSenha"
                 placeholder="*********"
-                maxlength="8"
                 minlength="8"
-                @paste="blockPasteOverLimit"
                 class="bg-surface-authBg rounded-lg text-slate-300 text-sm py-2 px-3 pr-9 w-full border border-surface-border focus:outline-none focus:border-brand-mint"
               />
               <button
@@ -235,6 +263,13 @@ function criarConta() {
               </button>
             </div>
           </div>
+
+          <p v-if="state.error" class="text-red-400 text-xs pt-2">{{ state.error }}</p>
+          <p v-if="sucesso" class="text-green-400 text-xs pt-2">{{ sucesso }}</p>
+          <p v-if="aviso" class="text-brand-mint text-xs pt-2">
+            {{ aviso }}
+            <router-link to="/login" class="underline">Ir para o login</router-link>
+          </p>
 
           <button
             type="submit"

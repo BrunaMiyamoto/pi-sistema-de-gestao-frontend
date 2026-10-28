@@ -11,7 +11,7 @@ const state = reactive({
 
 function formatarDataBR(iso) {
   if (!iso) return "-";
-  const [ano, mes, dia] = iso.split("-");
+  const [ano, mes, dia] = iso.split("T")[0].split("-");
   if (!ano || !mes || !dia) return iso;
   return `${dia}/${mes}/${ano}`;
 }
@@ -117,8 +117,7 @@ async function salvarValoresOrcamento(pedidoBackendId, { valorOrcado, valorPedid
 
   if (valorOrcado != null && valorOrcado !== "") {
     const valorNumerico = Number(valorOrcado);
-    const precisaNovaRevisao =
-      !atual || atual.situacao !== "apresentado" || Number(atual.valor_orcado) !== valorNumerico;
+    const precisaNovaRevisao = !atual || Number(atual.valor_orcado) !== valorNumerico;
 
     if (precisaNovaRevisao) {
       atual = await api.post(`/pedidos/${pedidoBackendId}/orcamentos`, {
@@ -128,11 +127,21 @@ async function salvarValoresOrcamento(pedidoBackendId, { valorOrcado, valorPedid
     }
   }
 
-  if (valorPedido != null && valorPedido !== "" && atual && atual.situacao === "apresentado") {
-    atual = await api.put(`/pedidos/${pedidoBackendId}/orcamentos/${atual.id}/decisao`, {
-      situacao: "aprovado",
-      valor_fechado: Number(valorPedido),
-    });
+  if (valorPedido != null && valorPedido !== "") {
+    const valorPedidoNumerico = Number(valorPedido);
+    const jaAprovadoComEsseValor =
+      atual && atual.situacao === "aprovado" && Number(atual.valor_fechado) === valorPedidoNumerico;
+
+    if (atual && atual.situacao === "apresentado") {
+      atual = await api.put(`/pedidos/${pedidoBackendId}/orcamentos/${atual.id}/decisao`, {
+        situacao: "aprovado",
+        valor_fechado: valorPedidoNumerico,
+      });
+    } else if (!jaAprovadoComEsseValor) {
+      const erro = new Error("Não é possível aprovar o Valor do Pedido sem um orçamento apresentado. Informe o Valor Orçado primeiro.");
+      erro.data = { detail: erro.message };
+      throw erro;
+    }
   }
 
   return atual;

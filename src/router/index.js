@@ -1,5 +1,4 @@
 import { createRouter, createWebHistory } from "vue-router";
-import Home from "../views/Home.vue";
 import Login from "../views/Login.vue";
 import Dashboard from "../views/Dashboard.vue";
 import Relatorios from "../views/Relatorios.vue";
@@ -13,7 +12,13 @@ import { tokenExpirado } from "../services/api";
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: "/", name: "home", component: Home },
+    {
+      path: "/",
+      redirect: () => {
+        const { state } = useAuth();
+        return state.currentUser ? { name: "dashboard" } : { name: "login" };
+      },
+    },
     { path: "/login", name: "login", component: Login },
     {
       path: "/dashboard",
